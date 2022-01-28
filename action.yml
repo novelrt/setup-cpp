@@ -4,5 +4,7 @@ runs:
   using: composite
   steps:
     - run: echo "::add-matcher::gcc-matcher.json"
+      shell: bash
     - run: echo "::add-matcher::msvc-matcher.json"
+      shell: bash
       if: ${{ runner.os == 'Windows' }}

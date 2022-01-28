@@ -1,0 +1,8 @@
+name: 'Setup C/C++'
+description: 'Sets up common C/C++ problem matchers'
+runs:
+  using: composite
+  steps:
+    - run: echo "::add-matcher::gcc-matcher.json"
+    - run: echo "::add-matcher::msvc-matcher.json"
+      if: ${{ runner.os == 'Windows' }}

@@ -1,10 +1,73 @@
 name: 'Setup C/C++'
-description: 'Sets up common C/C++ problem matchers'
+description: 'Sets up a C/C++ build environment'
+
+inputs:
+  compiler-id:
+    description: 'Desired CMake compiler ID to use'
+    required: false
+  compiler-version:
+    description: 'Desired compiler version to use'
+    required: false
+    default: 'latest'
+  compiler-arch:
+    description: 'Desired compiler architecture'
+    required: false
+    default: 'amd64'
+
+outputs:
+  compiler-id:
+    description: 'Detected CMake compiler ID'
+    value: ${{ steps.determine-compiler.outputs.compiler-id }}
+  compiler-version:
+    description: 'Detected compiler version'
+    value: ${{ steps.determine-compiler.outputs.compiler-version }}
+
 runs:
   using: composite
   steps:
-    - run: echo "::add-matcher::${{ github.action_path }}/gcc-matcher.json"
+    - run: echo "##[add-matcher]${{ github.action_path }}/gcc-matcher.json"
       shell: bash
-    - run: echo "::add-matcher::${{ github.action_path }}/msvc-matcher.json"
+
+    - name: Setup Visual Studio Developer Command Prompt
+      if: ${{ runner.os == 'Windows' && inputs.compiler-id == 'MSVC' }}
+      shell: pwsh
+      run: |
+        echo "##[add-matcher]${{ github.action_path }}/msvc-matcher.json"
+
+        $hostArch = switch ("${Env:PROCESSOR_ARCHITECTURE}") {
+          "AMD64" { "amd64" }
+          "ARM64" { Write-Error -Message "ARM64 is not a valid host architecture" -ErrorAction Stop }
+          default { "x86" }
+        }
+
+        $targetArch = switch ("${{ inputs.compiler-arch }}") {
+          "amd64" { "amd64" }
+          "arm64" { "arm64" }
+          "x86" { "x86" }
+          default { Write-Error -Message "Unsupported target architecture $_" -ErrorAction Stop }
+        }
+
+        $vsWhere = "${Env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+        $installationPath = & $vsWhere -prerelease -latest -property installationPath
+        if ($installationPath -and (test-path "$installationPath\Common7\Tools\vsdevcmd.bat")) {
+          & "${env:COMSPEC}" /s /c "`"$installationPath\Common7\Tools\vsdevcmd.bat`" -no_logo -host_arch=$hostArch -arch=$targetArch && set" | foreach-object {
+            $name, $value = $_ -split '=', 2
+            $currentValue = if (Test-Path -Path "env:\$name") { (Get-Item -Path "env:\$name").Value } else { $null }
+            if ($value -ne $currentValue) {
+              if ($name -eq 'PATH') {
+                echo "$value" >> "${Env:GITHUB_PATH}"
+              } else {
+                echo "$name=$value" >> "${Env:GITHUB_ENV}"
+              }
+            }
+          }
+        }
+
+    - name: Determine installed compiler and version
+      id: determine-compiler
       shell: bash
-      if: ${{ runner.os == 'Windows' }}
+      run: |
+        awk -f- <(cmake --system-information) >> "$GITHUB_OUTPUT" << "EOF"
+        $1 == "CMAKE_CXX_COMPILER_ID" { gsub(/"/, "", $2); print "compiler-id=" $2 }
+        $1 == "CMAKE_CXX_COMPILER_VERSION" { gsub(/"/, "", $2); print "compiler-version=" $2 }
+        EOF
